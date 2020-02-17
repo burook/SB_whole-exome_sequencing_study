@@ -1,0 +1,115 @@
+---
+title: "A_SysBio_exome_analysis1"
+output:
+  html_notebook:
+    toc: yes
+    toc_float: yes
+date: "Jan. 29, 2020"
+---
+
+
+
+```{r}
+library(tidyverse)
+
+library(readxl)
+require(readr)
+require(dplyr)
+require(data.table)
+```
+
+
+##
+
+```{r}
+# load pheno data
+SysBio_clinical <- read_delim("/PHShome/bm363/WES_analysis/SysBio_clinical.txt", col_names = TRUE, delim = "\t")
+
+# load list of fastQC processed files
+multiqc_sources <- read_delim("/data/humgen/burook/sysbio_exome/fastq_result1_multiqc/multiqc_data/multiqc_sources.txt", col_names = TRUE, delim = "\t")
+colnames(multiqc_sources) <- c(NA,NA,"SampleName")
+  
+```
+
+
+```{r}
+
+multiqc_sources %>% 
+  subset(select=c("SampleName")) %>% 
+  separate("SampleName", c("ID", "Batch", "read_end", NA)) %>% 
+  subset(select=c("ID")) %>% distinct() %>% 
+  left_join(SysBio_clinical) %>% 
+  group_by(PTSD_status) %>% 
+  summarise(
+    n=n()) %>%
+  print()
+
+```
+
+
+```{r}
+
+# x1 <- list.files("/data/humgen/burook/sysbio_exome/raw/")
+# x1 <- as.data.frame(x1); colnames(x1) <- "SampleName"
+
+
+tmp1 <- x1 %>% 
+  subset(select=c("SampleName")) %>% 
+  mutate(fastq_file = SampleName) %>% 
+  separate("SampleName", c("ID", "Batch", "read_end", NA)) %>% 
+  subset(select=c("ID","fastq_file")) %>% 
+  left_join(SysBio_clinical, by="ID") %>% 
+  subset(select=c("ID","PTSD_status","CAPSTOT_cur", "fastq_file")) %>% 
+  add_count(ID) %>% 
+  arrange(desc(n), ID, ) %>% 
+  print()
+
+
+write.table(tmp1, "/PHShome/bm363/WES_analysis/fastqc_samples.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+# distribution of duplicate samples
+
+tmp1 %>% 
+  group_by(n) %>% 
+  summarise(
+    numb=n()) %>%
+  print()
+
+```
+
+
+```{r}
+
+tmp1 <- multiqc_sources %>% 
+  subset(select=c("SampleName")) %>% 
+  mutate(fastq_file = SampleName) %>% 
+  separate("SampleName", c("ID", "Batch", "read_end", NA)) %>% 
+  subset(select=c("ID")) %>% distinct() %>% 
+  left_join(SysBio_clinical, by="ID") %>% 
+  subset(select=c("ID","PTSD_status","CAPSTOT_cur")) %>% 
+  print()
+
+#write.table(tmp1, "/PHShome/bm363/WES_analysis/fastqc_processed_samples.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+
+```{r}
+
+temp111 <- read_delim("/PHShome/bm363/WES_analysis/temp111.txt", col_names = FALSE, delim = "\t")
+colnames(temp111) <- "SampleName"
+```
+
+
+
+```{r}
+
+temp111 %>% 
+  subset(select=c("SampleName")) %>% 
+#  separate(SampleName, into = c("s1", "s2","s3"), sep = ".") %>% 
+#  subset(select=c("ID"))
+#  anti_join(multiqc_sources, by="SampleName") %>% 
+  print()
+
+```
+
