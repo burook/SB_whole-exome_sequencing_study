@@ -20,7 +20,7 @@ java \
     -jar /apps/software/GATK/3.8-0-Java-1.8.0_161/GenomeAnalysisTK.jar \
     -T VariantRecalibrator \
     -R ${refloc1}/genome.fa \
-    -input SysBio_exome_merged11.vcf \
+    -input SysBio_exome_merged12.vcf \
     -resource:hapmap,known=false,training=true,truth=true,prior=15.0 ${refloc1}/hapmap_3.3.hg19.vcf \
     -resource:omni,known=false,training=true,truth=true,prior=12.0 ${refloc1}/1000G_omni2.5.hg19.vcf \
     -resource:1000G,known=false,training=true,truth=false,prior=10.0 ${refloc1}/Mills_and_1000G_gold_standard.indels.hg19.vcf \
@@ -40,7 +40,7 @@ java \
     -jar /apps/software/GATK/3.8-0-Java-1.8.0_161/GenomeAnalysisTK.jar \
     -T ApplyRecalibration \
     -R ${refloc1}/genome.fa \
-    -input SysBio_exome_merged11.vcf \
+    -input SysBio_exome_merged12.vcf \
     -mode SNP \
     --ts_filter_level 90.0 \
     -recalFile SysBio.snps.recal \
