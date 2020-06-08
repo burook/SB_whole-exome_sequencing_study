@@ -7,30 +7,30 @@ output:
 date: "Jan. 29, 2020"
 ---
 
-
+```{r}
+.libPaths( c( "/opt/R/3.6.2/lib/R/library" , .libPaths() ) )
+```
 
 ```{r}
 library(tidyverse)
-
-library(readxl)
-require(readr)
-require(dplyr)
-require(data.table)
 ```
 
 
-##
+## Analysis of fastq file samples
 
 ```{r}
 # load pheno data
 SysBio_clinical <- read_delim("/PHShome/bm363/WES_analysis/SysBio_clinical.txt", col_names = TRUE, delim = "\t")
 
 # load list of fastQC processed files
-multiqc_sources <- read_delim("/data/humgen/burook/sysbio_exome/fastq_result1_multiqc/multiqc_data/multiqc_sources.txt", col_names = TRUE, delim = "\t")
+multiqc_sources <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/fastq_result2_multiqc/multiqc_data/multiqc_sources.txt", col_names = TRUE, delim = "\t")
 colnames(multiqc_sources) <- c(NA,NA,"SampleName")
-  
+
 ```
 
+```{r}
+multiqc_sources %>% print()
+```
 
 ```{r}
 
@@ -46,12 +46,49 @@ multiqc_sources %>%
 
 ```
 
+Let's prepare pheno file for GWAS analysis later on.
+```{r}
+
+tmp2 <- multiqc_sources %>% 
+  subset(select=c("SampleName")) %>% 
+  separate("SampleName", c("ID", "Batch", "read_end", NA)) %>%
+  mutate(sid = paste(ID,Batch,sep="_") ) %>% 
+  subset(select=c("ID","sid")) %>% distinct() %>% 
+  left_join(SysBio_clinical) %>% 
+  filter(PTSD_status=="Negative" | PTSD_status=="Positive") %>%
+  print()
+
+write.table(tmp2, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/SB_pheno1.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+The following file is for analysis with Hail.
+```{r}
+tmp3 <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/SB_pheno1.txt", col_names = TRUE, delim = "\t") %>% 
+  subset(select=c("ID","sid")) %>% 
+  print()
+
+write.table(tmp3, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/SB_pheno2.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+
+
+```{r}
+read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/SB_pheno1.txt", col_names = TRUE, delim = "\t") %>% 
+  group_by(PTSD_status) %>% 
+  summarise(
+    n=n()) %>%
+  print()
+```
+
+
+
 
 ```{r}
 
 # x1 <- list.files("/data/humgen/burook/sysbio_exome/raw/")
 # x1 <- as.data.frame(x1); colnames(x1) <- "SampleName"
-
 
 tmp1 <- x1 %>% 
   subset(select=c("SampleName")) %>% 
@@ -64,10 +101,13 @@ tmp1 <- x1 %>%
   arrange(desc(n), ID, ) %>% 
   print()
 
-
 write.table(tmp1, "/PHShome/bm363/WES_analysis/fastqc_samples.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+```
 
+```{r}
 # distribution of duplicate samples
+
+tmp1 <- read_delim("/PHShome/bm363/WES_analysis/fastqc_samples.txt", col_names = TRUE, delim = "\t")
 
 tmp1 %>% 
   group_by(n) %>% 
@@ -96,7 +136,7 @@ tmp1 <- multiqc_sources %>%
 
 ```{r}
 
-temp111 <- read_delim("/PHShome/bm363/WES_analysis/temp111.txt", col_names = FALSE, delim = "\t")
+temp111 <- read_delim("/PHShome/bm363/WES_analysis/temp111.txt", col_names = FALSE, delim = "\t") 
 colnames(temp111) <- "SampleName"
 ```
 
@@ -112,4 +152,329 @@ temp111 %>%
   print()
 
 ```
+
+
+```{bash}
+cd /data/humgen/guffantilab/exome/SystemsBio/gatk_indiv_vcf2/
+ls -lht | head 
+```
+
+
+## Analysis after the VCF file is produced
+
+First, let's create file name conversion file.
+(Not required for the new version of the VCF.)
+```{bash}
+# run the following from an hna001 terminal (where bcftools is already installed)
+dir1=/data/humgen/guffantilab/exome/SystemsBio/gatk_indiv_vcf/
+for file in `cd ${dir1};ls -1 *_recal3.vcf` ;do
+    echo $(basename $file _recal3.vcf) $(bcftools query -l ${dir1}/$file) >> ${dir1}/smpl_name_convert.txt
+done
+
+```
+
+
+
+Statistics of the variants obtained
+
+```{bash}
+# run the following from an hna001 terminal (where bcftools is already installed)
+cd /data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/
+bcftools stats SysBio_indels_recalibrated_b37_filtered.vcf.bgz > SysBio_variant_stats.vchk
+
+# let's plot the results
+plot-vcfstats SysBio_variant_stats.vchk -p stats_plots/
+# The plots are not being generated due to an issue with Python.
+# So let's generate it manually using the script generated.
+cd stats_plots/
+python plot.py
+```
+
+Number of variants per chromosome
+```{bash}
+cd /data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf
+grep -v '#' SysBio_indels_recalibrated.vcf | cut -f1 | uniq -c
+
+```
+
+Relatedness between samples to check duplicate samples.
+```{bash}
+# run the following on an erisone terminal (where vcftool is installed)
+cd /data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/
+vcftools --vcf SysBio_indels_recalibrated_b37_filtered.vcf --out relatedness --relatedness
+vcftools --vcf SysBio_indels_recalibrated_b37_filtered.vcf --relatedness2
+
+```
+
+
+```{r}
+out.relatedness2 <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/out.relatedness2", col_names = TRUE, delim = "\t")
+#smpl_name_convert <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_indiv_vcf/smpl_name_convert.txt", col_names = FALSE, delim = " ")
+#colnames(smpl_name_convert) <- c("id1","id2")
+
+relatedness2 <- out.relatedness2 %>% 
+#  full_join(smpl_name_convert, by = c("INDV1" = "id2")) %>% 
+#  full_join(smpl_name_convert, by = c("INDV2" = "id2")) %>% 
+  mutate(str1 = str_split(INDV1, "_", simplify = TRUE)[, 1]) %>% 
+  mutate(str2 = str_split(INDV2, "_", simplify = TRUE)[, 1]) %>% 
+  filter(INDV1!=INDV2) %>% 
+  filter(str1==str2) %>% 
+  distinct(str1, .keep_all=TRUE) %>% 
+  arrange(desc(RELATEDNESS_PHI)) %>% 
+  # let's remove duplicate rows
+  subset(select=c("INDV1", "INDV2","RELATEDNESS_PHI")) %>% 
+#  select(-one_of(c("str1","str2"))) %>% 
+  print()
+
+write.table(relatedness2, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/relatedness2.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+```{r}
+# duplicates not confirmed
+
+dup_not_conf <- out.relatedness2 %>% 
+  mutate(array1 = str_split(INDV1, "_", simplify = TRUE)[, 1]) %>% 
+  mutate(array2 = str_split(INDV2, "_", simplify = TRUE)[, 1]) %>% 
+  filter(INDV1!=INDV2) %>% 
+  filter(array1==array2) %>% 
+  # let's remove duplicate rows
+  distinct(array1, .keep_all=TRUE) %>% 
+  arrange(desc(RELATEDNESS_PHI)) %>% 
+  filter(RELATEDNESS_PHI<0.34) %>% 
+  subset(select=c("INDV1", "INDV2","RELATEDNESS_PHI","array1","array2")) %>%
+  print()
+
+write.table(dup_not_conf, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/duplicates_not_confirmed.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+```{r}
+# duplicates not confirmed
+
+dup_conf <- out.relatedness2 %>% 
+  mutate(array1 = str_split(INDV1, "_", simplify = TRUE)[, 1]) %>% 
+  mutate(array2 = str_split(INDV2, "_", simplify = TRUE)[, 1]) %>% 
+  filter(INDV1!=INDV2) %>% 
+  filter(array1==array2) %>% 
+  distinct(array1, .keep_all=TRUE) %>% 
+  arrange(desc(RELATEDNESS_PHI)) %>% 
+  filter(RELATEDNESS_PHI>0.34) %>% 
+  # let's remove duplicate rows
+  subset(select=c("INDV1", "INDV2","RELATEDNESS_PHI")) %>%
+  print()
+
+write.table(dup_conf, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/duplicates_confirmed.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+```{r}
+
+# duplicates not expected
+dup_not_expec <- out.relatedness2 %>% 
+  mutate(array1 = str_split(INDV1, "_", simplify = TRUE)[, 1]) %>% 
+  mutate(array2 = str_split(INDV2, "_", simplify = TRUE)[, 1]) %>% 
+  filter(INDV1!=INDV2) %>% 
+  filter(array1!=array2) %>% 
+  arrange(desc(RELATEDNESS_PHI)) %>% 
+  filter(RELATEDNESS_PHI>0.34) %>% 
+  subset(select=c("INDV1", "INDV2","RELATEDNESS_PHI", "array1","array2")) %>%
+  print()
+
+# let's remove duplicate pairs
+dup_not_expec <- dup_not_expec[!duplicated(t(apply(dup_not_expec, 1, sort))),] 
+
+write.table(dup_not_expec, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/duplicates_not_expected.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+
+```{r}
+
+# duplicates not expected
+no_dup <- out.relatedness2 %>% 
+  mutate(array1 = str_split(INDV1, "_", simplify = TRUE)[, 1]) %>% 
+  mutate(array2 = str_split(INDV2, "_", simplify = TRUE)[, 1]) %>% 
+  filter(INDV1==INDV2) %>% 
+  anti_join(dup_not_conf, by="INDV1") %>% 
+  anti_join(dup_not_conf, by="INDV2") %>% 
+  anti_join(dup_conf, by="INDV1") %>% 
+  anti_join(dup_conf, by="INDV2") %>% 
+  anti_join(dup_not_expec, by="INDV1") %>% 
+  anti_join(dup_not_expec, by="INDV2") %>% 
+  subset(select=c("INDV1", "INDV2","RELATEDNESS_PHI", "array1","array2")) %>%
+  print()
+
+write.table(no_dup, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/no_duplicates.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+```{r}
+
+map_to_array <- dup_not_conf %>% 
+  bind_rows(dup_conf) %>% 
+  bind_rows(dup_not_expec) %>% 
+  bind_rows(no_dup) %>% 
+  print()
+
+write.table(map_to_array, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/map_to_array.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+
+
+```{r}
+n_discordant1 <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/n_discordant1.txt", col_names = TRUE, delim = "\t") %>% 
+  subset(select=c("s", "n_discordant")) 
+colnames(n_discordant1) <- c("s","n_disc_array1")
+
+n_discordant2 <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/n_discordant2.txt", col_names = TRUE, delim = "\t") %>% 
+  subset(select=c("s", "n_discordant"))
+colnames(n_discordant2) <- c("s","n_disc_array2")
+
+map_to_array <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/map_to_array.txt", col_names = TRUE, delim = "\t") %>% 
+  print()
+
+mapping_to_array <- map_to_array %>% 
+  full_join(n_discordant1, by=c("INDV1"="s")) %>% 
+  full_join(n_discordant2, by=c("INDV1"="s")) %>% 
+  # WES that could not be mapped to array data
+  filter((n_disc_array1>200)&(n_disc_array2>200)) %>% 
+  # WES mapped to array data
+#  filter((n_disc_array1 < 200)|(n_disc_array2<200)) %>% 
+  # let's remove duplicate rows
+#  distinct(INDV1, .keep_all=TRUE) %>% 
+  arrange(desc(n_disc_array1)) %>% 
+  print()
+
+```
+
+
+
+```{r}
+
+ibd4 <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/ibd4.txt", col_names = TRUE, delim = "\t", 
+                   col_types = cols(
+  i = col_character(),
+  j = col_character(),
+  ibd.Z0 = col_double(),
+  ibd.Z1 = col_double(),
+  ibd.Z2 = col_double(),
+  ibd.PI_HAT = col_double(),
+  ibs0 = col_double(),
+  ibs1 = col_double(),
+  ibs2 = col_double()
+))
+
+
+mapping_wes_to_arra1 <- ibd4 %>% 
+  filter(ibd.PI_HAT>0.9) %>% 
+  arrange((ibd.PI_HAT)) %>% 
+  subset(select=c("i", "j","ibd.PI_HAT")) %>% 
+  # duplicates of the wes
+#  filter(nchar(j)==9) %>% 
+  # mappings to array
+  filter(nchar(j)==6) %>% 
+  # mapped to unique sample IDs
+#  distinct(j, .keep_all=TRUE) %>% 
+  add_count(j) %>% 
+  arrange(desc(n), j, ) %>% 
+  subset(select=c("n")) %>% table() %>% 
+  print()
+
+colnames(mapping_wes_to_arra1) = c("wes","array1","ibd_PI_HAT")
+
+write.table(mapping_wes_to_arra1, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/mapping_wes_to_arra1.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+
+```{r}
+nchar("202112")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+out.relatedness2 %>% 
+  subset(select=c("INDV1", "INDV2","RELATEDNESS_PHI")) %>% 
+  filter(INDV1=="201182_S3") %>% 
+  arrange(desc(RELATEDNESS_PHI)) %>% 
+  # let's remove duplicate rows
+  print()
+
+```
+
+
+```{r}
+relatedness.relatedness <- read_delim("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/relatedness.relatedness", col_names = TRUE, delim = "\t")
+
+relatedness1 <- relatedness.relatedness %>% 
+  mutate(str1 = str_split(INDV1, "_", simplify = TRUE)[, 1]) %>% 
+  mutate(str2 = str_split(INDV2, "_", simplify = TRUE)[, 1]) %>% 
+#  subset(select=c("INDV1", "INDV2","RELATEDNESS_AJK","str1","str2")) %>% 
+  filter(INDV1!=INDV2) %>% 
+  filter(str1==str2) %>% 
+  arrange(desc(RELATEDNESS_AJK)) %>% 
+  print()
+
+
+write.table(relatedness1, "/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/relatedness1.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+
+```
+
+
+
+
+```{r}
+library(ggdendro)
+library(data.table)
+
+related2 <- out.relatedness2 %>%
+  subset(select=c("INDV1", "INDV2","RELATEDNESS_PHI"))
+
+r1 <- dcast(related2,INDV1~INDV2)
+row.names(r1) <- r1$INDV1
+r1 <- r1[,-1]
+
+d1 <- dist(as.matrix(r1))
+h1 <- hclust(d1)
+
+pdf("/data/humgen/guffantilab/exome/SystemsBio/gatk_merged_vcf/dendrogram2.pdf", width=20, height=40)
+p1 <- ggdendrogram(h1, size=2, rotate = TRUE, theme_dendro = FALSE)
+p1
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
